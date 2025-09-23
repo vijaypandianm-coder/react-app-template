@@ -1,0 +1,45 @@
+.dark-theme .rbc-time-view {
+  background-color: #1e1e1e !important;
+  color: #f0f0f0 !important;
+  font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.dark-theme .rbc-time-gutter .rbc-timeslot-group {
+  border: none !important;
+}
+.dark-theme .rbc-time-gutter .rbc-time-slot {
+  border: none !important;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #ffffff !important;
+}
+.dark-theme .rbc-timeslot-group {
+  border-top: 1px solid #444 !important;
+}
+.dark-theme .rbc-timeslot-group:first-child {
+  border-top: none !important;
+}
+.dark-theme .rbc-time-slot {
+  border-top: none !important;
+}
+.dark-theme .rbc-toolbar button {
+  color: #fff !important;
+  background: transparent !important;
+  border: 1px solid #555 !important;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.dark-theme .rbc-toolbar button:hover {
+  background: #444 !important;
+}
+.dark-theme .rbc-toolbar button.rbc-active {
+  background: #fff !important;
+  color: #000 !important;
+  border-color: #fff !important;
+}
+.dark-theme .rbc-today {
+  background-color: #2a2a2a !important;
+  border: 2px solid #888 !important;
+}
