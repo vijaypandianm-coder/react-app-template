@@ -3,8 +3,16 @@ const BASE_CANDIDATES = [
   "http://localhost:5200/api/appointments"
 ];
 
-// Helper to try multiple API bases
+let authToken = null;
+export const setAuthToken = (token) => authToken = token;
+
 async function fetchWithFallback(path = "", options = {}) {
+  options.headers = {
+    ...(options.headers || {}),
+    Authorization: authToken ? `Bearer ${authToken}` : "",
+    "Content-Type": "application/json"
+  };
+
   let lastError = null;
   for (const base of BASE_CANDIDATES) {
     try {
@@ -17,7 +25,6 @@ async function fetchWithFallback(path = "", options = {}) {
   throw lastError || new Error("Unable to reach API.");
 }
 
-// Fetch all appointments
 export const fetchAppointments = async () => {
   const { res, base } = await fetchWithFallback("", { method: "GET" });
   if (!res.ok) {
@@ -27,24 +34,25 @@ export const fetchAppointments = async () => {
   return await res.json();
 };
 
-// Add appointment
 export const addAppointment = async (appointment) => {
-  const formatTime = (t) => t.length === 5 ? t + ":00" : t;
+  const start = new Date(`${appointment.date}T${appointment.time}`);
+  const end = new Date(`${appointment.date}T${appointment.endTime}`);
+
   const payload = {
     title: appointment.title,
-    date: appointment.date,
-    time: formatTime(appointment.time),
-    endTime: formatTime(appointment.endTime),
     category: appointment.category,
     recurrence: appointment.recurrence,
-    color: appointment.color || null,
-    timeZoneOffsetMinutes: new Date().getTimezoneOffset()
+    color: appointment.color || "#9575CD",
+    utcStart: start.toISOString(),
+    utcEnd: end.toISOString(),
+    userId: appointment.userId
   };
+
+  console.log("Adding appointment payload:", payload);
 
   const { res, base } = await fetchWithFallback("", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
@@ -52,10 +60,40 @@ export const addAppointment = async (appointment) => {
     throw new Error(`Add failed (${res.status}) from ${base}: ${text}`);
   }
 
-  return await res.json().catch(() => true);
+  return await res.json();
 };
 
-// Delete appointment
+export const updateAppointment = async (id, appointment) => {
+  if (!id && id !== 0) throw new Error("id required");
+
+  const start = new Date(`${appointment.date}T${appointment.time}`);
+  const end = new Date(`${appointment.date}T${appointment.endTime}`);
+
+  const payload = {
+    title: appointment.title,
+    category: appointment.category,
+    recurrence: appointment.recurrence,
+    color: appointment.color || "#9575CD",
+    utcStart: start.toISOString(),
+    utcEnd: end.toISOString(),
+    userId: appointment.userId
+  };
+
+  console.log("Updating appointment payload:", payload);
+
+  const { res, base } = await fetchWithFallback(`/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Update failed (${res.status}) from ${base}: ${text}`);
+  }
+
+  return await res.json();
+};
+
 export const deleteAppointment = async (id) => {
   if (!id && id !== 0) throw new Error("id required");
   const { res, base } = await fetchWithFallback(`/${encodeURIComponent(id)}`, { method: "DELETE" });

@@ -1,57 +1,76 @@
+// AddAppointmentModal.js
 import React, { useState } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import moment from "moment-timezone";
 
-// Categories and recurrences
 const categories = ["Meeting", "Call", "Reminder", "Other"];
 const recurrences = ["None", "Daily", "Weekly"];
 const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, "0"));
 const minutes = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, "0"));
+const timezones = moment.tz.names(); // ✅ Full timezone list
 
-const AddAppointmentModal = ({ onClose, onSave, theme }) => {
-  const [title, setTitle] = useState("");
-  const [date, setDate] = useState(new Date());
-  const [startHour, setStartHour] = useState("09");
-  const [startMinute, setStartMinute] = useState("00");
-  const [endHour, setEndHour] = useState("10");
-  const [endMinute, setEndMinute] = useState("00");
-  const [category, setCategory] = useState(categories[0]);
-  const [recurrence, setRecurrence] = useState(recurrences[0]);
+const AddAppointmentModal = ({ onClose, onSave, appointment, theme, user }) => {
+  const [title, setTitle] = useState(appointment?.title || "");
+  const [date, setDate] = useState(appointment ? new Date(appointment.start) : new Date());
+  const [startHour, setStartHour] = useState(
+    appointment ? String(new Date(appointment.start).getHours()).padStart(2, "0") : "09"
+  );
+  const [startMinute, setStartMinute] = useState(
+    appointment ? String(new Date(appointment.start).getMinutes()).padStart(2, "0") : "00"
+  );
+  const [endHour, setEndHour] = useState(
+    appointment ? String(new Date(appointment.end).getHours()).padStart(2, "0") : "10"
+  );
+  const [endMinute, setEndMinute] = useState(
+    appointment ? String(new Date(appointment.end).getMinutes()).padStart(2, "0") : "00"
+  );
+  const [category, setCategory] = useState(appointment?.category || categories[0]);
+  const [recurrence, setRecurrence] = useState(appointment?.recurrence || recurrences[0]);
   const [timeZoneId, setTimeZoneId] = useState(
-    Intl.DateTimeFormat().resolvedOptions().timeZone
+    appointment?.timeZoneId || moment.tz.guess()
   );
 
-  const timeZones = Intl.supportedValuesOf("timeZone");
-
   const handleSubmit = () => {
-    if (!title || !date || !startHour || !startMinute || !endHour || !endMinute) {
-      alert("Please fill all required fields");
+    if (!title) {
+      alert("Title required");
       return;
     }
 
-    const start = new Date(date);
-    start.setHours(Number(startHour), Number(startMinute));
-    const end = new Date(date);
-    end.setHours(Number(endHour), Number(endMinute));
+    const start = moment.tz(
+      `${moment(date).format("YYYY-MM-DD")} ${startHour}:${startMinute}`,
+      "YYYY-MM-DD HH:mm",
+      timeZoneId
+    );
 
-    if (start >= end) {
+    const end = moment.tz(
+      `${moment(date).format("YYYY-MM-DD")} ${endHour}:${endMinute}`,
+      "YYYY-MM-DD HH:mm",
+      timeZoneId
+    );
+
+    if (!start.isValid() || !end.isValid()) {
+      alert("Invalid start or end time");
+      return;
+    }
+    if (start.isSameOrAfter(end)) {
       alert("End time must be after start time");
       return;
     }
-    if (start < new Date()) {
-      alert("Date/time cannot be in the past");
-      return;
-    }
 
-    onSave({
-      title,
-      date: date.toISOString().split("T")[0],
-      time: `${startHour}:${startMinute}`,
-      endTime: `${endHour}:${endMinute}`,
+    const payload = {
+      id: appointment?.id || 0,
+      title: title.trim(),
       category,
       recurrence,
+      color: appointment?.color || "#9575CD",
+      utcStart: start.toISOString(),
+      utcEnd: end.toISOString(),
       timeZoneId,
-    });
+      userId: user.id,
+    };
+
+    onSave(payload, !!appointment);
   };
 
   const inputStyle = {
@@ -61,38 +80,8 @@ const AddAppointmentModal = ({ onClose, onSave, theme }) => {
     borderRadius: "8px",
     border: `1px solid ${theme.primary}`,
     fontSize: "0.95rem",
-    backgroundColor: theme.accent,
-    color: theme.primary,
-  };
-
-  const labelStyle = {
-    fontWeight: "500",
-    marginBottom: "0.25rem",
-    display: "block",
-    color: theme.primary,
-  };
-
-  const timeContainer = {
-    display: "flex",
-    gap: "0.5rem",
-    marginBottom: "0.8rem",
-    justifyContent: "space-between",
-  };
-
-  const selectWheelStyle = {
-    flex: 1,
-    padding: "0.5rem",
-    borderRadius: "8px",
-    border: `1px solid ${theme.primary}`,
-    fontSize: "1rem",
-    backgroundColor: theme.accent,
-    color: theme.primary,
-    textAlign: "center",
-    appearance: "none",
-    WebkitAppearance: "none",
-    MozAppearance: "none",
-    overflowY: "scroll",
-    height: "40px", // Only 1 value visible
+    backgroundColor: theme.background, // ✅ fixed theme usage
+    color: theme.accent,
   };
 
   return (
@@ -103,126 +92,111 @@ const AddAppointmentModal = ({ onClose, onSave, theme }) => {
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: "rgba(0,0,0,0.5)",
+        background: "rgba(0,0,0,0.4)",
         display: "flex",
-        alignItems: "center",
         justifyContent: "center",
-        zIndex: 9999,
+        alignItems: "center",
+        zIndex: 100,
       }}
-      onClick={onClose}
     >
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
-          backgroundColor: theme.background,
-          color: theme.primary,
-          padding: "2rem",
+          background: theme.cardBg,
+          padding: "1.5rem",
           borderRadius: "12px",
-          width: "380px",
+          width: "400px",
           maxHeight: "90vh",
           overflowY: "auto",
-          fontFamily: "'Poppins', sans-serif",
-          boxShadow: `0 6px 20px rgba(0,0,0,0.3)`,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
         }}
       >
-        <h3 style={{ marginTop: 0, marginBottom: "1rem", color: theme.primary }}>
-          Add Appointment
+        <h3 style={{ marginBottom: "1rem", color: theme.primary }}>
+          {appointment ? "Update Appointment" : "Add Appointment"}
         </h3>
 
-        <label style={labelStyle}>Title</label>
+        {/* Title */}
         <input
+          style={inputStyle}
           type="text"
+          placeholder="Title"
           value={title}
-          maxLength={25}
           onChange={(e) => setTitle(e.target.value)}
-          style={inputStyle}
         />
 
-        <label style={labelStyle}>Date</label>
-        <DatePicker
-          selected={date}
-          onChange={(d) => setDate(d)}
-          dateFormat="yyyy-MM-dd"
-          calendarClassName="disprz-calendar"
-          wrapperClassName="disprz-date-wrapper"
-          style={inputStyle}
-        />
+        {/* Date */}
+        <div style={{ marginBottom: "0.8rem" }}>
+          <DatePicker
+            selected={date}
+            onChange={setDate}
+            dateFormat="yyyy-MM-dd"
+            className="react-datepicker-input"
+            wrapperClassName="date-picker-wrapper"
+          />
+        </div>
 
-        <label style={labelStyle}>Start Time</label>
-        <div style={timeContainer}>
-          <select
-            value={startHour}
-            onChange={(e) => setStartHour(e.target.value)}
-            style={selectWheelStyle}
-          >
+        {/* Start time */}
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.8rem" }}>
+          <select style={{ ...inputStyle, width: "50%" }} value={startHour} onChange={(e) => setStartHour(e.target.value)}>
             {hours.map((h) => (
-              <option key={h} value={h}>{h}</option>
+              <option key={h}>{h}</option>
             ))}
           </select>
-          <select
-            value={startMinute}
-            onChange={(e) => setStartMinute(e.target.value)}
-            style={selectWheelStyle}
-          >
+          <select style={{ ...inputStyle, width: "50%" }} value={startMinute} onChange={(e) => setStartMinute(e.target.value)}>
             {minutes.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m}>{m}</option>
             ))}
           </select>
         </div>
 
-        <label style={labelStyle}>End Time</label>
-        <div style={timeContainer}>
-          <select
-            value={endHour}
-            onChange={(e) => setEndHour(e.target.value)}
-            style={selectWheelStyle}
-          >
+        {/* End time */}
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.8rem" }}>
+          <select style={{ ...inputStyle, width: "50%" }} value={endHour} onChange={(e) => setEndHour(e.target.value)}>
             {hours.map((h) => (
-              <option key={h} value={h}>{h}</option>
+              <option key={h}>{h}</option>
             ))}
           </select>
-          <select
-            value={endMinute}
-            onChange={(e) => setEndMinute(e.target.value)}
-            style={selectWheelStyle}
-          >
+          <select style={{ ...inputStyle, width: "50%" }} value={endMinute} onChange={(e) => setEndMinute(e.target.value)}>
             {minutes.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m}>{m}</option>
             ))}
           </select>
         </div>
 
-        <label style={labelStyle}>Category</label>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} style={inputStyle}>
+        {/* Category */}
+        <select style={inputStyle} value={category} onChange={(e) => setCategory(e.target.value)}>
           {categories.map((c) => (
             <option key={c}>{c}</option>
           ))}
         </select>
 
-        <label style={labelStyle}>Recurrence</label>
-        <select value={recurrence} onChange={(e) => setRecurrence(e.target.value)} style={inputStyle}>
+        {/* Recurrence */}
+        <select style={inputStyle} value={recurrence} onChange={(e) => setRecurrence(e.target.value)}>
           {recurrences.map((r) => (
             <option key={r}>{r}</option>
           ))}
         </select>
 
-        <label style={labelStyle}>Time Zone</label>
-        <select value={timeZoneId} onChange={(e) => setTimeZoneId(e.target.value)} style={inputStyle}>
-          {timeZones.map((tz) => (
-            <option key={tz} value={tz}>{tz}</option>
+        {/* Timezone */}
+        <select style={inputStyle} value={timeZoneId} onChange={(e) => setTimeZoneId(e.target.value)}>
+          {timezones.map((tz) => (
+            <option key={tz} value={tz}>
+              {tz}
+            </option>
           ))}
         </select>
 
+        {/* Buttons */}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1rem" }}>
           <button
             onClick={onClose}
             style={{
               padding: "0.5rem 1rem",
               borderRadius: "6px",
-              border: `1px solid ${theme.primary}`,
+              background: theme.secondary,
+              color: theme.accent,
+              border: "none",
               cursor: "pointer",
-              background: theme.accent,
-              color: theme.primary,
+              fontWeight: 600,
             }}
           >
             Cancel
@@ -230,12 +204,13 @@ const AddAppointmentModal = ({ onClose, onSave, theme }) => {
           <button
             onClick={handleSubmit}
             style={{
-              backgroundColor: theme.primary,
-              color: theme.accent,
-              border: "none",
               padding: "0.5rem 1rem",
               borderRadius: "6px",
+              background: theme.primary,
+              color: theme.accent,
+              border: "none",
               cursor: "pointer",
+              fontWeight: 600,
             }}
           >
             Save

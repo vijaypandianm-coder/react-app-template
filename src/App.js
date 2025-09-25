@@ -1,151 +1,163 @@
-import React, { useState, useEffect } from "react";
+// App.js
+import React, { useState, useEffect, useRef } from "react";
 import { Calendar, momentLocalizer } from "react-big-calendar";
 import moment from "moment";
-import AppointmentList from "./components/AppointmentList";
+
+import LoginPage from "./components/LoginPage";
 import AddAppointmentModal from "./components/AddAppointmentModal";
 import OrbitLogo from "./components/OrbitLogo";
-import { fetchAppointments, addAppointment, deleteAppointment } from "./api/appointments";
+
+import {
+  fetchAppointments,
+  addAppointment,
+  updateAppointment,
+  deleteAppointment,
+  setAuthToken,
+} from "./api/appointments";
+
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import "./calendarOverrides.css";
 import "./darkTheme.css";
 
-const themeLight = {
-  primary: "#6A1B9A",
-  secondary: "#D1C4E9",
-  accent: "#FFFFFF",
-  background: "#F3E5F5",
-  evenEvent: "#A8D0E6",
-  oddEvent: "#9575CD",
-};
-
-const themeDark = {
-  primary: "#1A1A1A",
-  secondary: "#333333",
-  accent: "#FFFFFF",
-  background: "#121212",
-  evenEvent: "#4444AA",
-  oddEvent: "#6622CC",
-};
-
 const localizer = momentLocalizer(moment);
 
-// Custom toolbar component
-const CustomToolbar = ({ label, onNavigate, onView }) => {
-  return (
-    <div className="rbc-toolbar">
-      {/* Top line: Back / Today / Next */}
-      <div className="rbc-toolbar-navigation">
-        <button onClick={() => onNavigate("PREV")}>{"<"}</button>
-        <button onClick={() => onNavigate("TODAY")}>Today</button>
-        <button onClick={() => onNavigate("NEXT")}>{">"}</button>
-      </div>
-
-      {/* Middle line: Current date */}
-      <div className="rbc-toolbar-label">{label}</div>
-
-      {/* Bottom line: View buttons */}
-      <div className="rbc-toolbar-view">
-        <button onClick={() => onView("day")}>Day</button>
-        <button onClick={() => onView("week")}>Week</button>
-        <button onClick={() => onView("month")}>Month</button>
-      </div>
-    </div>
-  );
-};
-
 const App = () => {
+  const [user, setUser] = useState(null);
   const [appointments, setAppointments] = useState([]);
   const [events, setEvents] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  const [deletingIds, setDeletingIds] = useState([]);
+  const [editingAppointment, setEditingAppointment] = useState(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
-  const [currentView, setCurrentView] = useState("day");
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState(null); // for 3-dot menus
 
-  const theme = darkMode ? themeDark : themeLight;
-
-  const parseDateTime = (dateStr, timeStr) => {
-    if (!dateStr || !timeStr) return null;
-    const [hour, minute] = timeStr.split(":").map(Number);
-    const [year, month, day] = dateStr.split("-").map(Number);
-    return new Date(year, month - 1, day, hour, minute, 0);
+  const themeLight = {
+    primary: "#6A1B9A",
+    secondary: "#F8F6FC",
+    accent: "#1A1A1A",
+    background: "#F3E5F5",
+    cardBg: "#FFFFFF",
+    scrollbarThumb: "#B39DDB",
+    scrollbarTrack: "#EDE7F6",
   };
 
+  const themeDark = {
+    primary: "#8E24AA",
+    secondary: "#1F1F1F",
+    accent: "#FFFFFF",
+    background: "#121212",
+    cardBg: "#2C2C2C",
+    scrollbarThumb: "#6A1B9A",
+    scrollbarTrack: "#2A2A2A",
+  };
+
+  const theme = darkMode ? themeDark : themeLight;
+  const dropdownRef = useRef();
+
+  // Fetch appointments from backend
   const loadAppointments = async () => {
+    if (!user) return;
     try {
       const data = await fetchAppointments();
-      if (!data) return;
 
-      const enriched = data.map((app) => {
-        const start = parseDateTime(app.Date, app.Time);
-        const end = parseDateTime(app.Date, app.EndTime);
-        return {
-          ...app,
-          id: app.Id ?? app.id,
-          start,
-          end,
-          title: app.Title,
-          category: app.Category || "Other",
-          color: theme.primary,
-          timeZoneId: app.TimeZoneId,
-        };
+      const now = new Date();
+      const futureAppointments = data.filter((app) => {
+        const start = new Date(`${app.Date}T${app.Time}`);
+        return start >= now;
       });
+
+      const enriched = futureAppointments
+        .map((app) => {
+          const start = new Date(`${app.Date}T${app.Time}`);
+          const end = new Date(`${app.Date}T${app.EndTime}`);
+          if (isNaN(start) || isNaN(end)) return null;
+
+          return {
+            id: app.Id,
+            title: app.Title,
+            start,
+            end,
+            category: app.Category,
+            recurrence: app.Recurrence,
+            color: app.Color || theme.primary,
+            userId: app.UserId,
+            timezone: app.TimeZoneId || Intl.DateTimeFormat().resolvedOptions().timeZone,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.start - b.start);
 
       setAppointments(enriched);
       setEvents(
-        enriched.map((app) => ({
-          id: app.id,
-          title: app.title,
-          start: app.start,
-          end: app.end,
-          category: app.category,
-          color: app.color,
+        enriched.map((a) => ({
+          id: a.id,
+          title: a.title,
+          start: a.start,
+          end: a.end,
+          category: a.category,
+          color: a.color,
         }))
       );
     } catch (err) {
-      console.error(err);
-      setAppointments([]);
-      setEvents([]);
+      console.error("Load failed", err);
+      alert("Failed to load appointments.");
     }
   };
 
   useEffect(() => {
     loadAppointments();
+  }, [darkMode, user]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setShowUserDropdown(false);
+      }
+      if (!e.target.closest(".menu-container")) {
+        setOpenMenuId(null); // close 3-dot menus if clicked outside
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleAddAppointment = async (appointment) => {
+  const handleAddOrUpdateAppointment = async (appointment, isUpdate) => {
     try {
-      const saved = await addAppointment(appointment);
-      const start = parseDateTime(saved.Date, saved.Time);
-      const end = parseDateTime(saved.Date, saved.EndTime);
+      let newApp;
+      if (isUpdate) {
+        newApp = await updateAppointment(appointment.id, appointment);
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === appointment.id ? newApp : a))
+        );
+      } else {
+        newApp = await addAppointment(appointment);
+        setAppointments((prev) => [...prev, newApp]);
+      }
 
-      const newApp = {
-        ...saved,
-        id: saved.Id ?? saved.id,
-        start,
-        end,
-        title: saved.Title,
-        category: saved.Category || "Other",
-        color: theme.primary,
-        timeZoneId: saved.TimeZoneId,
-      };
+      const start = new Date(`${newApp.Date}T${newApp.Time}`);
+      const end = new Date(`${newApp.Date}T${newApp.EndTime}`);
 
-      setAppointments((prev) => [...prev, newApp]);
-      setEvents((prev) => [
-        ...prev,
-        {
-          id: newApp.id,
-          title: newApp.title,
-          start: newApp.start,
-          end: newApp.end,
-          category: newApp.category,
-          color: newApp.color,
-        },
-      ]);
+      setEvents((prev) => {
+        const filtered = prev.filter((e) => e.id !== newApp.id);
+        return [
+          ...filtered,
+          {
+            id: newApp.id,
+            title: newApp.Title,
+            start,
+            end,
+            category: newApp.Category,
+            color: newApp.Color || theme.primary,
+          },
+        ];
+      });
+
       setShowModal(false);
+      setEditingAppointment(null);
     } catch (err) {
       console.error(err);
-      alert("Failed to add appointment. See console.");
+      alert("Save failed: " + err.message);
     }
   };
 
@@ -153,13 +165,10 @@ const App = () => {
     const snapshot = [...appointments];
     setAppointments((prev) => prev.filter((a) => a.id !== id));
     setEvents((prev) => prev.filter((e) => e.id !== id));
-    setDeletingIds((prev) => [...prev, id]);
     try {
       await deleteAppointment(id);
-      setDeletingIds((prev) => prev.filter((x) => x !== id));
     } catch (err) {
-      console.error(err);
-      alert("Delete failed.");
+      alert("Delete failed");
       setAppointments(snapshot);
       setEvents(
         snapshot.map((a) => ({
@@ -171,22 +180,19 @@ const App = () => {
           color: a.color,
         }))
       );
-      setDeletingIds((prev) => prev.filter((x) => x !== id));
     }
   };
 
-  const buttonBoxStyle = {
-    backgroundColor: theme.primary,
-    color: theme.accent,
-    border: "none",
-    borderRadius: "6px",
-    padding: "0.5rem 0.75rem",
-    fontSize: "1rem",
-    cursor: "pointer",
-    fontWeight: 600,
-    minWidth: "60px",
-    textAlign: "center",
-  };
+  if (!user) {
+    return (
+      <LoginPage
+        onLoginSuccess={(data) => {
+          setUser(data);
+          setAuthToken(data.token);
+        }}
+      />
+    );
+  }
 
   return (
     <div
@@ -195,7 +201,6 @@ const App = () => {
         flexDirection: "column",
         height: "100vh",
         background: theme.background,
-        fontFamily: "'Montserrat', sans-serif",
         color: theme.accent,
       }}
     >
@@ -203,27 +208,46 @@ const App = () => {
       <div
         style={{
           display: "flex",
-          alignItems: "center",
           justifyContent: "space-between",
+          alignItems: "center",
           background: theme.primary,
-          color: theme.accent,
           padding: "0.5rem 1rem",
         }}
       >
-        <button
-          onClick={() => setSidebarVisible(!sidebarVisible)}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: theme.accent,
-            fontSize: "1.5rem",
-            cursor: "pointer",
-          }}
-        >
-          ☰
-        </button>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <OrbitLogo />
+        <OrbitLogo />
+        <div ref={dropdownRef} style={{ position: "relative", cursor: "pointer" }}>
+          <span
+            onClick={() => setShowUserDropdown(!showUserDropdown)}
+            style={{ fontWeight: 600 }}
+          >
+            {user.username} ▼
+          </span>
+          {showUserDropdown && (
+            <div
+              style={{
+                position: "absolute",
+                right: 0,
+                top: "100%",
+                background: theme.secondary,
+                color: theme.accent,
+                padding: "0.5rem 1rem",
+                borderRadius: "6px",
+                marginTop: "0.25rem",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                zIndex: 100,
+              }}
+            >
+              <div
+                onClick={() => {
+                  setUser(null);
+                  setAuthToken(null);
+                }}
+                style={{ cursor: "pointer", fontWeight: 600 }}
+              >
+                Logout
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -232,19 +256,122 @@ const App = () => {
         {sidebarVisible && (
           <div
             style={{
-              width: "20%",
+              width: "22%",
               borderRight: `2px solid ${theme.secondary}`,
               padding: "1rem",
-              overflowY: "auto",
               background: theme.secondary,
+              overflowY: "auto",
+              height: "100%",
             }}
+            className="custom-scrollbar"
           >
-            <h3 style={{ color: theme.primary }}>Upcoming Appointments</h3>
-            <AppointmentList
-              appointments={appointments}
-              onDelete={handleDelete}
-              deletingIds={deletingIds}
-            />
+            <h3 style={{ color: theme.primary, marginBottom: "1rem" }}>
+              Upcoming Appointments
+            </h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {appointments.map((appt) => (
+                <div
+                  key={appt.id}
+                  style={{
+                    background: theme.cardBg,
+                    padding: "1rem",
+                    borderRadius: "12px",
+                    boxShadow:
+                      "0 3px 6px rgba(0,0,0,0.15), inset 0 1px 2px rgba(255,255,255,0.2)",
+                    transition: "all 0.3s ease",
+                    position: "relative",
+                  }}
+                  className="menu-container"
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "translateY(-4px)";
+                    e.currentTarget.style.boxShadow =
+                      "0 6px 12px rgba(0,0,0,0.25), inset 0 2px 3px rgba(255,255,255,0.15)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow =
+                      "0 3px 6px rgba(0,0,0,0.15), inset 0 1px 2px rgba(255,255,255,0.2)";
+                  }}
+                >
+                  {/* Appointment Info */}
+                  <h4 style={{ margin: 0, fontWeight: "600", color: theme.primary }}>
+                    {appt.title}
+                  </h4>
+                  <p style={{ margin: "4px 0", fontSize: "0.9rem", color: theme.accent }}>
+                    {moment(appt.start).format("MMMM D, YYYY")}
+                  </p>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: theme.primary }}>
+                    {moment(appt.start).format("hh:mm A")} -{" "}
+                    {moment(appt.end).format("hh:mm A")}
+                  </p>
+                  <p style={{ margin: "4px 0 0", fontSize: "0.75rem", color: theme.accent }}>
+                    {appt.timezone}
+                  </p>
+
+                  {/* 3-dot menu */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "10px",
+                      right: "10px",
+                      cursor: "pointer",
+                      fontSize: "1.2rem",
+                      color: theme.primary,
+                    }}
+                    onClick={() =>
+                      setOpenMenuId(openMenuId === appt.id ? null : appt.id)
+                    }
+                  >
+                    ⋮
+                  </div>
+                  {openMenuId === appt.id && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "35px",
+                        right: "10px",
+                        background: theme.secondary,
+                        borderRadius: "8px",
+                        boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+                        zIndex: 200,
+                        padding: "0.5rem",
+                        minWidth: "100px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: "0.3rem 0.5rem",
+                          cursor: "pointer",
+                          color: theme.accent,
+                          fontWeight: 500,
+                        }}
+                        onClick={() => {
+                          setEditingAppointment(appt);
+                          setShowModal(true);
+                          setOpenMenuId(null);
+                        }}
+                      >
+                        Update
+                      </div>
+                      <div
+                        style={{
+                          padding: "0.3rem 0.5rem",
+                          cursor: "pointer",
+                          color: "red",
+                          fontWeight: 500,
+                        }}
+                        onClick={() => {
+                          handleDelete(appt.id);
+                          setOpenMenuId(null);
+                        }}
+                      >
+                        Delete
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -258,11 +385,36 @@ const App = () => {
               gap: "0.5rem",
             }}
           >
-            <button onClick={() => setDarkMode(!darkMode)} style={buttonBoxStyle}>
-              DARK
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              style={{
+                padding: "0.5rem 1rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                borderRadius: "6px",
+                border: "none",
+                background: theme.secondary,
+                color: theme.accent,
+              }}
+            >
+              {darkMode ? "Light Mode" : "Dark Mode"}
             </button>
-            <button onClick={() => setShowModal(true)} style={buttonBoxStyle} title="Add appointment">
-              +
+            <button
+              onClick={() => {
+                setEditingAppointment(null);
+                setShowModal(true);
+              }}
+              style={{
+                padding: "0.5rem 1rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                borderRadius: "6px",
+                border: "none",
+                background: theme.primary,
+                color: theme.accent,
+              }}
+            >
+              + Add Appointment
             </button>
           </div>
 
@@ -273,45 +425,58 @@ const App = () => {
             endAccessor="end"
             defaultView="day"
             views={["day", "week", "month"]}
-            onView={(view) => setCurrentView(view)}
             step={60}
             timeslots={1}
-            min={new Date(1970, 1, 1, 0, 0, 0)}
-            max={new Date(1970, 1, 1, 23, 59, 59)}
-            components={{ toolbar: CustomToolbar }}
-            className={darkMode ? "disprz-calendar dark-calendar" : "disprz-calendar"}
             style={{
-              height: "100%",
+              height: "80vh",
               borderRadius: "8px",
               backgroundColor: darkMode ? "#1A1A1A" : "#FFFFFF",
               color: darkMode ? "#FFFFFF" : "#000000",
             }}
-            dayPropGetter={(date) => {
-              const today = new Date();
-              const isToday =
-                date.getDate() === today.getDate() &&
-                date.getMonth() === today.getMonth() &&
-                date.getFullYear() === today.getFullYear();
-
-              if ((currentView === "month" || currentView === "week") && isToday) {
-                return { style: { backgroundColor: "#EDE7F6" } };
-              }
-              return {};
-            }}
             eventPropGetter={(event) => ({
               style: {
-                backgroundColor: event.color || theme.primary,
+                backgroundColor: event.color,
                 color: theme.accent,
-                borderRadius: 6,
-                border: "none",
+                borderRadius: "6px",
                 padding: "2px",
+                border: "none",
               },
             })}
           />
 
-          {showModal && <AddAppointmentModal onClose={() => setShowModal(false)} onSave={handleAddAppointment} theme={theme} />}
+          {showModal && (
+            <AddAppointmentModal
+              onClose={() => {
+                setShowModal(false);
+                setEditingAppointment(null);
+              }}
+              onSave={handleAddOrUpdateAppointment}
+              appointment={editingAppointment}
+              theme={theme}
+              user={user}
+            />
+          )}
         </div>
       </div>
+
+      {/* Custom Scrollbar Styles */}
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: ${theme.scrollbarTrack};
+          border-radius: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background-color: ${theme.scrollbarThumb};
+          border-radius: 8px;
+          border: 2px solid ${theme.scrollbarTrack};
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background-color: ${darkMode ? "#9C27B0" : "#7E57C2"};
+        }
+      `}</style>
     </div>
   );
 };
